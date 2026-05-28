@@ -63,6 +63,31 @@ data_sources:
 
 Set `collect_mode: configured` if you want faster targeted analysis using only the configured catalog.
 
+## Validating Metrics Against Your YBA
+
+YBA and YugabyteDB versions can expose different metric names or labels. Use this workflow to validate and tune the metric mappings before trusting RCA output.
+
+```bash
+# Confirm the YAML, incident window, and number of configured metrics are valid.
+yira validate-config --config examples/yira.yaml
+
+# List every raw metric name available in your YBA Prometheus.
+yira list-metrics --prometheus-url http://yba-host:9090
+
+# Run the full analysis for the configured time window.
+yira analyze --config examples/yira.yaml
+```
+
+After `analyze` finishes, open the generated files in `reports/` and check the `missing_metrics` section. A missing metric means the configured PromQL returned no data for the time window.
+
+To fix a missing metric:
+
+1. Search the output from `yira list-metrics` for the closest real metric name.
+2. Compare labels in YBA Prometheus if the metric exists but still returns no data.
+3. Update only your environment in `examples/yira.yaml` under `metrics:` when the change is cluster-specific.
+4. Update the built-in catalog in `yira/metric_catalog.py` when the mapping should be the default for everyone.
+5. Rerun `yira analyze --config examples/yira.yaml` and confirm the metric no longer appears under `missing_metrics`.
+
 Override any metric in YAML when your YBA/YugabyteDB version uses different names or labels:
 
 ```yaml
