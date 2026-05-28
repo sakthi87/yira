@@ -64,6 +64,9 @@ detection:
   zscore_critical: 4.0
   default_warning_multiplier: 3
   default_critical_multiplier: 10
+  skew:
+    warning_ratio: 3
+    critical_ratio: 8
 
 output:
   directory: ./reports

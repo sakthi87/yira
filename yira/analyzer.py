@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from .causal import build_causal_chains
 from .config import build_window
 from .logs import collect_log_events
 from .models import AnalysisReport, MetricSeries, Signal
@@ -15,8 +16,9 @@ def analyze(config: dict[str, Any]) -> AnalysisReport:
     window = build_window(config)
     series, missing_metrics = collect_prometheus_metrics(config, window)
     signals = detect_signals(config, window, series)
+    causal_chains = build_causal_chains(signals, window)
     log_events = collect_log_events(config, window)
-    root_causes = score_root_causes(config, signals, log_events)
+    root_causes = score_root_causes(config, signals, log_events, causal_chains)
     affected_nodes = sorted({node for signal in signals for node in signal.affected_nodes})
     affected_regions = sorted({region for signal in signals for region in signal.affected_regions})
     recommendations = dedupe(
@@ -35,6 +37,7 @@ def analyze(config: dict[str, Any]) -> AnalysisReport:
         symptom=build_symptom(signals, series),
         root_causes=root_causes,
         signals=signals,
+        causal_chains=causal_chains,
         log_events=log_events,
         missing_metrics=missing_metrics,
         affected_nodes=affected_nodes,

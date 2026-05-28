@@ -64,17 +64,42 @@ def render_markdown(report: AnalysisReport) -> str:
         lines.append("- No root cause scored above zero. Check missing evidence and metric availability.")
     lines.append("")
 
+    if report.causal_chains:
+        lines.extend(["## Likely Causal Chains", ""])
+        for chain in report.causal_chains[:5]:
+            lines.append(f"- `{chain.name}` confidence={chain.confidence:.2f}")
+            lines.append(f"  - {chain.explanation}")
+            for edge in chain.edges[:5]:
+                lines.append(
+                    f"  - {edge.source_category} -> {edge.target_category}: "
+                    f"{edge.lag_seconds}s lag, confidence={edge.confidence:.2f}"
+                )
+        lines.append("")
+
     lines.extend(["## Key Signals", ""])
     if report.signals:
         for signal in report.signals[:20]:
             entity = ", ".join(signal.affected_nodes or signal.affected_regions or ["cluster"])
             lines.append(
                 f"- `{signal.name}` {signal.severity} score={signal.score:.2f} "
-                f"peak={format_value(signal.peak)}{signal.unit} entity={entity} reason={signal.reason}"
+                f"peak={format_value(signal.peak)}{signal.unit} duration={signal.duration_seconds}s "
+                f"entity={entity} reason={signal.reason}"
             )
     else:
         lines.append("- No warning or critical metric signals detected.")
     lines.append("")
+
+    skew_signals = [
+        signal
+        for signal in report.signals
+        if signal.category.endswith("_skew") or "node_skew" in signal.categories
+    ]
+    if skew_signals:
+        lines.extend(["## Skew Findings", ""])
+        for signal in skew_signals[:10]:
+            entity = ", ".join(signal.affected_nodes or signal.affected_regions or ["cluster"])
+            lines.append(f"- `{signal.name}` on `{entity}`: {signal.reason}")
+        lines.append("")
 
     if report.log_events:
         lines.extend(["## Log Highlights", ""])

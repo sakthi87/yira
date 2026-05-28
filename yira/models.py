@@ -54,10 +54,37 @@ class Signal:
     first_seen: datetime | None
     last_seen: datetime | None
     unit: str
+    categories: list[str] = field(default_factory=list)
     affected_nodes: list[str] = field(default_factory=list)
     affected_regions: list[str] = field(default_factory=list)
     labels: dict[str, str] = field(default_factory=dict)
     reason: str = ""
+
+    @property
+    def duration_seconds(self) -> int:
+        if not self.first_seen or not self.last_seen:
+            return 0
+        return max(int((self.last_seen - self.first_seen).total_seconds()), 0)
+
+
+@dataclass
+class CausalEdge:
+    source: str
+    target: str
+    source_category: str
+    target_category: str
+    lag_seconds: int
+    confidence: float
+    reason: str
+
+
+@dataclass
+class CausalChain:
+    name: str
+    confidence: float
+    signals: list[str]
+    edges: list[CausalEdge]
+    explanation: str
 
 
 @dataclass
@@ -90,6 +117,7 @@ class AnalysisReport:
     symptom: dict[str, Any]
     root_causes: list[RootCauseScore]
     signals: list[Signal]
+    causal_chains: list[CausalChain]
     log_events: list[LogEvent]
     missing_metrics: list[str]
     affected_nodes: list[str]

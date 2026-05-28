@@ -20,6 +20,9 @@ def detect_signals(
         signal = detect_metric_signal(config, window, metric_name, metric_def, metric_series)
         if signal and signal.severity != "normal":
             signals.append(signal)
+        skew_signal = detect_skew_signal(config, window, metric_name, metric_def, metric_series)
+        if skew_signal:
+            signals.append(skew_signal)
     return sorted(signals, key=lambda item: (-item.score, item.name))
 
 
@@ -85,6 +88,7 @@ def detect_metric_signal(
             first_seen=None,
             last_seen=None,
             unit=metric_def.get("unit", ""),
+            categories=categories(metric_def, metric_name),
         )
 
     active_times = [
@@ -108,10 +112,73 @@ def detect_metric_signal(
         first_seen=min(active_times) if active_times else peak_time,
         last_seen=max(active_times) if active_times else peak_time,
         unit=metric_def.get("unit", ""),
+        categories=categories(metric_def, metric_name),
         affected_nodes=label_values(metric_series, node_label),
         affected_regions=label_values(metric_series, region_label),
         labels=peak_series.labels,
         reason=reason or f"peak={peak_value:.2f}{metric_def.get('unit', '')}",
+    )
+
+
+def detect_skew_signal(
+    config: dict[str, Any],
+    window: TimeWindow,
+    metric_name: str,
+    metric_def: dict[str, Any],
+    metric_series: list[MetricSeries],
+) -> Signal | None:
+    node_label = config.get("topology", {}).get("node_label_mapping", {}).get("node", "exported_instance")
+    region_label = config.get("topology", {}).get("node_label_mapping", {}).get("region", "region")
+    peaks: list[tuple[str, str, float, datetime, MetricSeries]] = []
+    for item in metric_series:
+        node = item.labels.get(node_label)
+        if not node:
+            continue
+        incident_points = [
+            point
+            for point in item.points
+            if window.incident_start <= point.timestamp <= window.incident_end
+        ]
+        if not incident_points:
+            continue
+        peak = max(incident_points, key=lambda point: point.value)
+        peaks.append((node, item.labels.get(region_label, ""), peak.value, peak.timestamp, item))
+
+    if len(peaks) < 3:
+        return None
+    values = [value for _, _, value, _, _ in peaks]
+    median_value = statistics.median(values)
+    if median_value <= 0:
+        return None
+    node, region, peak_value, peak_time, peak_series = max(peaks, key=lambda row: row[2])
+    ratio = peak_value / median_value
+    skew_config = config.get("detection", {}).get("skew", {})
+    warning_ratio = float(skew_config.get("warning_ratio", 3.0))
+    critical_ratio = float(skew_config.get("critical_ratio", 8.0))
+    if ratio < warning_ratio:
+        return None
+
+    severity = "critical" if ratio >= critical_ratio else "warning"
+    score = min(0.55 + (ratio / 20), 0.95)
+    metric_categories = categories(metric_def, metric_name)
+    skew_category = infer_skew_category(metric_categories)
+    return Signal(
+        name=f"{metric_name}_node_skew",
+        metric=metric_name,
+        category=skew_category,
+        severity=severity,
+        score=score,
+        peak=peak_value,
+        baseline=median_value,
+        multiplier=ratio,
+        first_seen=peak_time,
+        last_seen=peak_time,
+        unit=metric_def.get("unit", ""),
+        categories=[skew_category, "node_skew"] + metric_categories,
+        affected_nodes=[node],
+        affected_regions=[region] if region else [],
+        labels=peak_series.labels,
+        reason=f"node {node} is {ratio:.1f}x cluster median for {metric_name}",
     )
 
 
@@ -172,8 +239,25 @@ def severity_score(
 
 
 def primary_category(metric_def: dict[str, Any], fallback: str) -> str:
-    categories = metric_def.get("categories") or []
-    return categories[0] if categories else fallback
+    metric_categories = categories(metric_def, fallback)
+    return metric_categories[0] if metric_categories else fallback
+
+
+def categories(metric_def: dict[str, Any], fallback: str) -> list[str]:
+    metric_categories = metric_def.get("categories") or []
+    return list(metric_categories) if metric_categories else [fallback]
+
+
+def infer_skew_category(metric_categories: list[str]) -> str:
+    if any(item in metric_categories for item in ("tserver_ops", "ysql_ops", "docdb_write_latency")):
+        return "hotspot_or_tablet_skew"
+    if any(item in metric_categories for item in ("leader_changes", "consensus_latency", "consensus_ops")):
+        return "leader_skew"
+    if any(item in metric_categories for item in ("network", "network_errors", "network_throughput")):
+        return "network_skew"
+    if any(item in metric_categories for item in ("storage_pressure", "iowait", "disk_iops")):
+        return "storage_skew"
+    return "node_skew"
 
 
 def max_severity(left: str, right: str) -> str:

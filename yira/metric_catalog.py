@@ -576,6 +576,36 @@ YBA_UI_METRICS.update(
             "categories": ["transaction_contention"],
             "severity": {},
         },
+        # Consistency-wait and hotspot signals. Names can vary by YB version;
+        # keep these configurable and let dynamic discovery catch aliases.
+        "safe_time_lag_ms": {
+            "unit": "ms",
+            "query": 'max by (exported_instance, region, table_name) ((safe_time_lag{${metric_filter}} or consumer_safe_time_lag{${metric_filter}} or follower_lag_ms{${metric_filter}}))',
+            "required": False,
+            "categories": ["safe_time_lag", "consistency_wait", "ysql_read_latency"],
+            "severity": {"warning": {"gt": 1000}, "critical": {"gt": 5000}},
+        },
+        "read_restart_rate": {
+            "unit": "events_per_sec",
+            "query": 'sum by (exported_instance, region, table_name) (rate(read_restart_requests{${metric_filter}}[$rate_window]) or rate(restart_read_requests{${metric_filter}}[$rate_window]) or rate(transaction_restart_read_requests{${metric_filter}}[$rate_window]))',
+            "required": False,
+            "categories": ["read_restarts", "consistency_wait", "transaction_contention"],
+            "severity": {"warning": {"gt": 1}, "critical": {"gt": 10}},
+        },
+        "leader_skew_signal": {
+            "unit": "count",
+            "query": 'max by (exported_instance, region) (tablet_leaders{${metric_filter}} or leaders_count{${metric_filter}} or ts_tablet_peers_leaders{${metric_filter}})',
+            "required": False,
+            "categories": ["leader_skew", "hotspot_or_tablet_skew", "replication"],
+            "severity": {"warning": {"gt": 1000}, "critical": {"gt": 3000}},
+        },
+        "hot_tablet_ops_signal": {
+            "unit": "ops_per_sec",
+            "query": 'max by (exported_instance, region, table_name) (rate(ql_read_latency_count{${metric_filter}, namespace_name!="system_platform"}[$rate_window]) + rate(ql_write_latency_count{${metric_filter}, namespace_name!="system_platform"}[$rate_window]))',
+            "required": False,
+            "categories": ["hotspot_or_tablet_skew", "tserver_ops", "workload"],
+            "severity": {"warning": {"gt": 5000}, "critical": {"gt": 20000}},
+        },
     }
 )
 

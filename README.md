@@ -1,6 +1,6 @@
 # YIRA: YugabyteDB YSQL Incident Root Cause Analyzer
 
-YIRA is a CLI-first analyzer for YugabyteDB YSQL latency incidents. It queries YBA Prometheus for a configured incident window, detects anomalous signals, correlates evidence across YSQL/RPC/Raft/storage/resource/master/log layers, and writes Markdown plus JSON RCA reports.
+YIRA is a CLI-first analyzer for YugabyteDB YSQL latency incidents. It queries YBA Prometheus for a configured incident window, detects anomalous signals, builds likely causal chains across YSQL/RPC/Raft/storage/resource/master/log layers, and writes Markdown plus JSON RCA reports.
 
 ## Install
 
@@ -48,6 +48,7 @@ YIRA uses two metric sources by default:
 
 - A built-in YBA/YSQL catalog with explicit mappings for the listed YBA universe graph families: YSQL ops/latency, resource, tablet server, master server, master advanced, DocDB, WAL, Raft, RPC, catalog cache, memory/cache, and transaction metrics.
 - Dynamic discovery from YBA Prometheus. It lists Prometheus metric names and queries every discovered non-YCQL metric up to `data_sources.prometheus.discovery.max_metrics`.
+- Explicit consistency-wait and skew hooks for safe-time lag, read restarts, hot tablet load, and leader concentration.
 
 YCQL/CQL metrics are excluded by default:
 
@@ -62,6 +63,29 @@ data_sources:
 ```
 
 Set `collect_mode: configured` if you want faster targeted analysis using only the configured catalog.
+
+## How RCA Works
+
+YIRA does not just list red metrics. It turns raw metrics into signals, orders those signals by time, checks entity overlap, and then scores root-cause hypotheses.
+
+The report includes:
+
+- `Root Cause Ranking`: weighted RCA categories such as RPC saturation, storage bottleneck, consistency wait latency, hotspot/leader skew, or Raft instability.
+- `Likely Causal Chains`: timeline explanations such as `WAL latency -> consensus latency -> follower lag -> YSQL latency`.
+- `Key Signals`: abnormal metrics with severity, duration, peak value, affected node/region, and reason.
+- `Skew Findings`: nodes or regions that are much worse than the cluster median.
+- `Missing Evidence`: configured metrics that returned no data for the time window.
+
+YIRA currently models these causal patterns:
+
+- write pressure -> WAL pressure -> Raft/consensus latency -> follower/safe-time lag -> YSQL latency
+- RPC queue -> reactor delay -> queue timeout -> YSQL latency
+- storage pressure -> WAL latency -> consensus latency -> follower lag -> YSQL latency
+- network errors/skew -> consensus latency -> leader changes/follower lag -> YSQL latency
+- catalog/tablet-location lookup pressure -> master latency -> YSQL latency
+- cache/SST/LSM/DocDB read-path pressure -> YSQL latency
+- transaction conflicts/read restarts -> YSQL latency
+- hot tablet/node skew -> RPC/consensus pressure -> YSQL latency
 
 ## Validating Metrics Against Your YBA
 
@@ -120,4 +144,4 @@ YIRA scans files under that directory and correlates deadline, Raft, and storage
 
 ## Current Scope
 
-This is MVP 1 plus basic log correlation. It does not yet collect YSQL snapshots, YBA universe metadata, or cloud metrics directly, but the configuration and scoring model are built to accept those sources next.
+This version includes metric collection, discovery, signal detection, node/region skew detection, temporal causal chains, RCA scoring, Markdown/JSON reports, and basic log correlation. It does not yet collect YSQL snapshots, YBA universe metadata, or cloud metrics directly, but the configuration and scoring model are built to accept those sources next.

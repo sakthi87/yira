@@ -53,6 +53,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "zscore_critical": 4.0,
         "default_warning_multiplier": 3.0,
         "default_critical_multiplier": 10.0,
+        "skew": {
+            "warning_ratio": 3.0,
+            "critical_ratio": 8.0,
+        },
     },
     "scoring": {
         "confidence_high": 0.80,
@@ -136,6 +140,7 @@ DEFAULT_ROOT_CAUSES: dict[str, Any] = {
             "remote_bootstrap": 0.10,
             "ysql_read_latency": 0.15,
             "safe_time_lag": 0.10,
+            "consistency_wait": 0.10,
             "log_raft_warnings": 0.10,
         },
         "recommendations": [
@@ -305,6 +310,37 @@ DEFAULT_ROOT_CAUSES: dict[str, Any] = {
         "recommendations": [
             "Check leader stepdowns/elections, remote bootstraps, clock skew, and cross-region network health.",
             "Validate that leader placement is stable across the 4+4+2 topology.",
+        ],
+    },
+    "consistency_wait_latency": {
+        "threshold": 0.65,
+        "weights": {
+            "safe_time_lag": 0.30,
+            "consistency_wait": 0.25,
+            "read_restarts": 0.20,
+            "clock_skew": 0.10,
+            "follower_lag_spike": 0.10,
+            "ysql_read_latency": 0.05,
+        },
+        "recommendations": [
+            "Check safe-time lag, read restarts, follower lag, and hybrid clock skew during the latency window.",
+            "Validate whether reads are waiting on consistency rather than SQL execution.",
+        ],
+    },
+    "hotspot_or_leader_skew": {
+        "threshold": 0.65,
+        "weights": {
+            "hotspot_or_tablet_skew": 0.30,
+            "leader_skew": 0.20,
+            "node_skew": 0.15,
+            "tserver_ops": 0.10,
+            "rpc_queue_size": 0.10,
+            "consensus_latency": 0.10,
+            "ysql_read_latency": 0.05,
+        },
+        "recommendations": [
+            "Inspect table/tablet distribution, leader placement, and per-node outliers.",
+            "Look for one node, region, table, or tablet carrying disproportionate read/write load.",
         ],
     },
 }
