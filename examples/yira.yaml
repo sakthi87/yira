@@ -1,0 +1,88 @@
+app:
+  name: yira
+  environment: prod
+
+cluster:
+  universe_name: prod-yugabyte
+  prometheus_url: http://yba-host:9090
+  # YBA Prometheus commonly labels universe metrics with node_prefix.
+  # Override this if your Prometheus uses universe="<name>" or another label.
+  metric_filter: 'node_prefix="$universe"'
+  labels:
+    universe: prod-yugabyte
+
+window:
+  incident_start: "2026-05-26T10:00:00Z"
+  incident_end: "2026-05-26T10:30:00Z"
+  step: "30s"
+  rate_window: "2m"
+  baseline:
+    before: "30m"
+  recovery:
+    after: "15m"
+
+topology:
+  expected_node_count: 10
+  replication_factor: 3
+  placement_pattern: "4+4+2"
+  regions:
+    - name: region-a
+      expected_nodes: 4
+      preferred: true
+    - name: region-b
+      expected_nodes: 4
+    - name: region-c
+      expected_nodes: 2
+  leader_preference:
+    enabled: true
+    preferred_regions: ["region-a"]
+  node_label_mapping:
+    node: exported_instance
+    region: region
+    az: az
+
+data_sources:
+  prometheus:
+    enabled: true
+    # configured_and_discovered = built-in YBA/YSQL catalog plus every discovered non-YCQL metric.
+    # Use configured for faster targeted analysis.
+    collect_mode: configured_and_discovered
+    timeout: "30s"
+    retries: 3
+    discovery:
+      enabled: true
+      max_metrics: 2000
+      include_regex: ""
+      exclude_regex: "(?i)(ycql|cql|cassandra|redis)"
+  logs:
+    enabled: false
+    path: ./logs
+
+detection:
+  min_duration: "60s"
+  zscore_warning: 2.5
+  zscore_critical: 4.0
+  default_warning_multiplier: 3
+  default_critical_multiplier: 10
+
+output:
+  directory: ./reports
+  formats: ["markdown", "json"]
+  include_promql: true
+
+# Override or add logical metrics here when your YBA Prometheus labels differ.
+# Built-ins include YBA/YSQL UI metric families for YSQL ops/latency,
+# resources, tablet server, DocDB, WAL, Raft, RPC, master, and transactions.
+# Discovery additionally queries every Prometheus metric name except YCQL/CQL.
+metrics: {}
+
+logs:
+  patterns:
+    log_deadline_expired:
+      severity: critical
+      regex: "(?i)(deadline expired|timed out|timeout|service unavailable)"
+      categories: ["rpc", "latency"]
+    log_raft_warnings:
+      severity: warning
+      regex: "(?i)(election|leader changed|RequestConsensusVotes|remote bootstrap|StartRemoteBootstrap)"
+      categories: ["raft", "replication"]
